@@ -3,15 +3,15 @@
 #include <queue>
 #include <chrono>
 #include <sstream>
-#include <boost/thread.hpp>
-#include <boost/thread/tss.hpp>
+#include <mutex>
+#include <condition_variable>
 
 std::mutex mut;
-std::mutex output_mut;
+std::mutex omut;
 std::queue<int> data_queue;
 std::condition_variable data_cond;
-//thread_local unsigned int processed_size = 0;
-//thread_local std::stringstream processed_string;
+thread_local unsigned int ps = 0;
+thread_local std::stringstream pd;
 
 void data_preparation_thread() {
   int i = 0;
@@ -21,17 +21,9 @@ void data_preparation_thread() {
     data_cond.notify_one();
     i++;
   }
-  
 }
 
 void data_process_thread(int id, int num_of_item) {
-  static boost::thread_specific_ptr<std::stringstream> psPtr;
-  if (!psPtr.get())
-    psPtr.reset(new std::stringstream());
-  static boost::thread_specific_ptr<double> psCountPtr;
-  if (!psCountPtr.get())
-    psCountPtr.reset(new double{0});
-    
   for (int i = 0; i < num_of_item; ++i) {
     std::unique_lock<std::mutex> lk(mut);
     data_cond.wait(lk, []{return !data_queue.empty();});
@@ -40,22 +32,23 @@ void data_process_thread(int id, int num_of_item) {
     std::this_thread::sleep_for(std::chrono::milliseconds(1000));
     lk.unlock();
     //processData(data);
-    *psPtr << id << " processes data" << data << std::endl;
+    pd << id << " processes data" << data << std::endl;
     //    std::cout << id << " processes data: " << data << std::endl;
-    ++(*psCountPtr);
-    if (*psCountPtr > 9) {
-      std::unique_lock<std::mutex> olk(mut);
-      std::cout << (*psPtr).str();
+    ++ps;
+    if (ps > 9) {
+      std::unique_lock<std::mutex> olk(omut);
+      std::cout << pd.str();
       olk.unlock();
-      (*psPtr).clear();
-      (*psCountPtr) = 0;
+      pd.str("");
+      ps = 0;
+      std::cout << "@@@@@@@@@@@@@@@@@@@@" << std::endl;
     }
   }
 }
 
 int main() {
   std::thread prod1(data_preparation_thread);
-  
+
   // consumer threads
   std::thread consumer1(data_process_thread, 1, 50);
   std::thread consumer2(data_process_thread, 2, 50);
