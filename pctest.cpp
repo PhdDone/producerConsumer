@@ -18,6 +18,7 @@ std::mutex omut;
 std::mutex entry_mutex;
 
 std::queue<std::string> data_queue;
+bool finished= false;
 std::condition_variable data_cond;
 thread_local unsigned int ps = 0;
 thread_local std::stringstream pd;
@@ -38,6 +39,11 @@ void data_preparation_thread(const char* filename) {
     data_queue.push(line);
     data_cond.notify_one();
   }
+  //TODO: try less time
+  std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+  std::lock_guard<std::mutex> lk(mut);
+  finished = true;
+  data_cond.notify_all();
 }
 
 void buildFeature(std::vector<std::string> const& tokens) {
@@ -94,13 +100,14 @@ void processData(const std::string& data, int cache_size) {
   }
 }
 
-void data_process_thread(int id, int num_of_item, int cache_size) {
-  for (int i = 0; i < num_of_item; ++i) {
+void data_process_thread(int id, int cache_size) {
+  while (true) {
     std::unique_lock<std::mutex> lk(mut);
-    data_cond.wait(lk, []{return !data_queue.empty();});
+    data_cond.wait(lk, []{ return !data_queue.empty() || finished;});
+    if (finished) break;
     std::string data = data_queue.front();
     data_queue.pop();
-    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    //std::this_thread::sleep_for(std::chrono::milliseconds(10));
     lk.unlock();
     processData(data, cache_size);
   }
@@ -115,12 +122,14 @@ int main(int argc, char** argv) {
 
   //TODO: get size of file to better distribute the work
   // consumer threads
-  std::thread consumer1(data_process_thread, 1, 4, 2);
-  std::thread consumer2(data_process_thread, 2, 4, 2);
-  //std::thread consumer3(data_process_thread, 3);
+  //TODO: try larger cache and more thread
+  std::thread consumer1(data_process_thread, 1, 2);
+  std::thread consumer2(data_process_thread, 2, 2);
+  std::thread consumer3(data_process_thread, 3, 2);
   prod1.join();
   consumer1.join();
   consumer2.join();
+  consumer3.join();
   //std::cout << data_queue.size() << std::endl;
   while (!data_queue.empty()) {
     std::string data = data_queue.front();
