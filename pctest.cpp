@@ -26,9 +26,9 @@ thread_local std::stringstream pd;
 typedef std::unordered_map<std::string, int> FeatureMap;
 FeatureMap fmap;
 
-//std::ofstream finalOutput; //update std::cout to this later
+std::ofstream finalOutput; //update std::cout to this later
 
-std::ostream& finalOutput = std::cout;
+//std::ostream& finalOutput = std::cout;
 
 void data_preparation_thread(const char* filename) {
   int i = 0;
@@ -91,9 +91,9 @@ void processData(const std::string& data, int cache_size) {
   //pd << " processes data: " << data << std::endl;
   //    std::cout << id << " processes data: " << data << std::endl;
   ++ps;
-  if (ps > cache_size) {
+  if (ps >= cache_size) {
     std::unique_lock<std::mutex> olk(omut);
-    std::cout << pd.str();
+    finalOutput << pd.str();
     olk.unlock();
     pd.str("");
     ps = 0;
@@ -113,28 +113,46 @@ void data_process_thread(int id, int cache_size) {
   }
   //dump cache
   std::lock_guard<std::mutex> olk(omut);
-  std::cout << pd.str();
+  finalOutput << pd.str();
   //olk.unlock();
 }
 
+void printFeature(const char* fileName) {
+  std::vector<std::string> fnames(fmap.size());
+  for (FeatureMap::const_iterator it = fmap.begin(); it != fmap.end(); ++it) {
+    fnames[it->second - 1] = it->first;
+  }
+  std::ofstream oFile(fileName);
+  for (std::size_t i=0; i < fnames.size(); ++i) {
+    oFile << fnames[i] << std::endl;
+  }
+  oFile.close();
+}
+
 int main(int argc, char** argv) {
+  finalOutput.open(argv[2], std::ofstream::out);
   std::thread prod1(data_preparation_thread, argv[1]);
 
-  //TODO: get size of file to better distribute the work
   // consumer threads
   //TODO: try larger cache and more thread
-  std::thread consumer1(data_process_thread, 1, 2);
-  std::thread consumer2(data_process_thread, 2, 2);
-  std::thread consumer3(data_process_thread, 3, 2);
+  std::thread consumer1(data_process_thread, 1, 10);
+  std::thread consumer2(data_process_thread, 2, 10);
+  std::thread consumer3(data_process_thread, 3, 10);
+  std::thread consumer4(data_process_thread, 4, 10);
+
   prod1.join();
   consumer1.join();
   consumer2.join();
   consumer3.join();
-  //std::cout << data_queue.size() << std::endl;
+  consumer4.join();
+  std::cout << "main thread process: " << data_queue.size() << std::endl;
   while (!data_queue.empty()) {
     std::string data = data_queue.front();
     data_queue.pop();
     processData(data, 0);
   }
+
+  printFeature(argv[3]);
+  //TODO: dump featurename
   return 0;
 }
